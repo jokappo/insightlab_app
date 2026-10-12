@@ -22,3 +22,5 @@ export const getAlerts = (ticker) =>
   handleRequest(() => axios.get(`${API_BASE}/alerts/${ticker}`)).then((data) => data ?? []);
 export const getLatestPredictions = () =>
   handleRequest(() => axios.get(`${API_BASE}/predictions/latest`)).then((data) => data ?? []);
+export const simulateMarketShock = (payload) =>
+  handleRequest(() => axios.post(`${API_BASE}/simulation/market-shock`, payload));

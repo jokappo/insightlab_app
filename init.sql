@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS raw_streaming (
     low DOUBLE PRECISION,
     close DOUBLE PRECISION,
     volume BIGINT,
+    source VARCHAR(20) NOT NULL DEFAULT 'live',
     ingestion_ts TIMESTAMP NOT NULL
 );
 
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     id SERIAL PRIMARY KEY,
     ticker VARCHAR(20) NOT NULL,
     predicted_volatility DOUBLE PRECISION NOT NULL,
+    source VARCHAR(20) NOT NULL DEFAULT 'live',
     prediction_ts TIMESTAMP NOT NULL
 );
 
@@ -72,5 +74,6 @@ CREATE TABLE IF NOT EXISTS alerts (
     predicted_volatility DOUBLE PRECISION,
     zscore DOUBLE PRECISION,
     message TEXT,
+    source VARCHAR(20) NOT NULL DEFAULT 'live',
     alert_ts TIMESTAMP NOT NULL
 );

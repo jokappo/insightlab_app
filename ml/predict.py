@@ -7,13 +7,17 @@ import joblib
 import pandas as pd
 
 from config import MODEL_PATH, ROLLING_WINDOWS, TICKERS
-from datalake_utils import read_df, write_df
+from datalake_utils import get_engine, read_df, write_df
 from alerts.alert_manager import check_and_raise_alerts
+from sqlalchemy import text
 
 
-def build_live_features(ticker: str) -> pd.DataFrame:
+def build_live_features(ticker: str, source: str = "live") -> pd.DataFrame:
     hist = read_df("raw_historical", where=f"WHERE ticker = '{ticker}' ORDER BY date")
-    stream = read_df("raw_streaming", where=f"WHERE ticker = '{ticker}' ORDER BY timestamp")
+    stream = read_df(
+        "raw_streaming",
+        where=f"WHERE ticker = '{ticker}' AND source = '{source}' ORDER BY timestamp",
+    )
 
     if hist.empty:
         return pd.DataFrame()
@@ -33,7 +37,7 @@ def build_live_features(ticker: str) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
-def run_predictions():
+def run_predictions(source: str = "live", tickers=None):
     if not os.path.exists(MODEL_PATH):
         print("[ERREUR] Modèle introuvable. Lance ml/train_model.py d'abord.")
         return pd.DataFrame()
@@ -41,15 +45,25 @@ def run_predictions():
     bundle = joblib.load(MODEL_PATH)
     model, feature_cols = bundle["model"], bundle["features"]
 
+    with get_engine().begin() as connection:
+        connection.execute(text(
+            "ALTER TABLE raw_streaming ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'live'"
+        ))
+        connection.execute(text(
+            "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'live'"
+        ))
+
     results = []
-    for ticker in TICKERS:
-        feats = build_live_features(ticker)
+    prediction_tickers = tickers or TICKERS
+    for ticker in prediction_tickers:
+        feats = build_live_features(ticker, source=source)
         if feats.empty or feats[feature_cols].isnull().any(axis=1).iloc[0]:
             continue
         pred = model.predict(feats[feature_cols])[0]
         results.append({
             "ticker": ticker,
             "predicted_volatility": float(pred),
+            "source": source,
             "prediction_ts": dt.datetime.now(dt.UTC).isoformat(),
         })
 

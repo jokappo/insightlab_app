@@ -244,6 +244,10 @@ function App() {
         tickers={tickers}
         selected={selected}
         onCreate={(alert) => setSimulatedAlerts((current) => [alert, ...current])}
+        onComplete={(simulationResult) => {
+          setSelected(simulationResult.simulation.ticker);
+          setRefreshKey((current) => current + 1);
+        }}
       />
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-slate-400">Historique local : {simulatedAlerts.length} alerte{simulatedAlerts.length !== 1 ? "s" : ""}</p>

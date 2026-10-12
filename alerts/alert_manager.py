@@ -7,14 +7,24 @@ import datetime as dt
 import pandas as pd
 
 from config import ALERT_ZSCORE_THRESHOLD
-from datalake_utils import read_df, write_df
+from datalake_utils import get_engine, read_df, write_df
+from sqlalchemy import text
 
 
 def check_and_raise_alerts(new_predictions: pd.DataFrame):
     if new_predictions.empty:
         return
 
+    with get_engine().begin() as connection:
+        connection.execute(text(
+            "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'live'"
+        ))
+        connection.execute(text(
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'live'"
+        ))
+
     history = read_df("predictions")
+    history = history[history["source"].fillna("live") == "live"]
     alerts = []
 
     for _, row in new_predictions.iterrows():
@@ -36,6 +46,7 @@ def check_and_raise_alerts(new_predictions: pd.DataFrame):
                 "predicted_volatility": pred,
                 "zscore": float(zscore),
                 "message": f"Volatilité anormalement élevée pour {ticker} (z-score={zscore:.2f})",
+                "source": row.get("source", "live"),
                 "alert_ts": dt.datetime.now(dt.UTC).isoformat(),
             })
 

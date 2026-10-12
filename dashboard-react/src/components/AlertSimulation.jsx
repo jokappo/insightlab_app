@@ -1,29 +1,34 @@
 import { useState } from "react";
+import { simulateMarketShock } from "../api";
 
-const DEFAULT_VOLATILITY = "0.0800";
-const DEFAULT_ZSCORE = "3.20";
+const DEFAULT_SHOCK = "-8";
 
-export default function AlertSimulation({ tickers, selected, onCreate }) {
+export default function AlertSimulation({ tickers, selected, onCreate, onComplete }) {
   const [ticker, setTicker] = useState(selected || tickers[0] || "");
-  const [volatility, setVolatility] = useState(DEFAULT_VOLATILITY);
-  const [zscore, setZscore] = useState(DEFAULT_ZSCORE);
-  const [created, setCreated] = useState(false);
+  const [shockPercent, setShockPercent] = useState(DEFAULT_SHOCK);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const [running, setRunning] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    setRunning(true);
+    setError("");
+    setResult(null);
 
-    const simulatedAlert = {
-      id: `simulation-${Date.now()}`,
-      ticker,
-      predicted_volatility: Number(volatility) / 100,
-      zscore: Number(zscore),
-      message: `Simulation : volatilité élevée détectée pour ${ticker}`,
-      alert_ts: new Date().toISOString(),
-      isSimulation: true,
-    };
-
-    onCreate(simulatedAlert);
-    setCreated(true);
+    try {
+      const simulationResult = await simulateMarketShock({
+        ticker,
+        shock_percent: Number(shockPercent),
+      });
+      setResult(simulationResult);
+      simulationResult.alerts.forEach((alert) => onCreate({ ...alert, isSimulation: true }));
+      onComplete(simulationResult);
+    } catch {
+      setError("La simulation n’a pas pu exécuter le pipeline de prédiction.");
+    } finally {
+      setRunning(false);
+    }
   };
 
   return (
@@ -33,7 +38,7 @@ export default function AlertSimulation({ tickers, selected, onCreate }) {
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-amber-300">Mode démonstration</p>
           <h2 className="mt-2 text-2xl font-semibold text-white">Simuler une alerte</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            Crée une alerte locale pour présenter le parcours de détection. Aucune donnée réelle ni table PostgreSQL ne sera modifiée.
+            Injecte une cotation synthétique dans le Data Lake, puis exécute le même pipeline que la production : features, prédiction et détection d’alerte.
           </p>
         </div>
 
@@ -51,28 +56,14 @@ export default function AlertSimulation({ tickers, selected, onCreate }) {
           </label>
 
           <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-300">Volatilité prédite (%)</span>
+            <span className="mb-2 block text-sm font-medium text-slate-300">Choc de prix simulé (%)</span>
             <input
               type="number"
-              min="0"
-              max="100"
-              step="0.0001"
-              value={volatility}
-              onChange={(event) => setVolatility(event.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-slate-100 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/30"
-              required
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-300">Z-score</span>
-            <input
-              type="number"
-              min="0"
-              max="20"
-              step="0.01"
-              value={zscore}
-              onChange={(event) => setZscore(event.target.value)}
+              min="-50"
+              max="50"
+              step="0.1"
+              value={shockPercent}
+              onChange={(event) => setShockPercent(event.target.value)}
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-slate-100 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/30"
               required
             />
@@ -80,16 +71,21 @@ export default function AlertSimulation({ tickers, selected, onCreate }) {
 
           <button
             type="submit"
+            disabled={running || !ticker}
             className="w-full rounded-xl bg-amber-400 px-4 py-3 font-semibold text-slate-950 transition hover:bg-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
-            Créer l’alerte fictive
+            {running ? "Exécution du pipeline…" : "Injecter et lancer la simulation"}
           </button>
         </form>
 
-        {created && (
-          <p className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-            Alerte simulée créée et affichée dans le panneau de droite.
-          </p>
+        {error && <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</p>}
+        {result && (
+          <div className="mt-4 space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            <p className="font-semibold">Donnée injectée dans le Data Lake.</p>
+            <p>Prix simulé : {(result.simulation.simulated_close ?? 0).toFixed(2)}</p>
+            <p>Prédiction réelle : {(Number(result.prediction.predicted_volatility) * 100).toFixed(4)}%</p>
+            <p>{result.alerts.length ? "Alerte déclenchée." : "Aucune alerte déclenchée pour ce scénario."}</p>
+          </div>
         )}
       </section>
 
@@ -108,11 +104,11 @@ export default function AlertSimulation({ tickers, selected, onCreate }) {
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
             <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Valeur proposée</p>
-            <p className="mt-2 text-2xl font-semibold text-amber-300">8,00 %</p>
+            <p className="mt-2 text-2xl font-semibold text-amber-300">-8,00 %</p>
           </div>
         </div>
         <p className="mt-6 text-sm leading-6 text-slate-300">
-          Après validation, l’alerte est ajoutée uniquement à l’état de démonstration du navigateur. Elle disparaît au rechargement de la page.
+          Cette action modifie volontairement `raw_streaming`, `predictions` et éventuellement `alerts`. Utilise-la uniquement sur un environnement de démonstration.
         </p>
       </section>
     </div>
